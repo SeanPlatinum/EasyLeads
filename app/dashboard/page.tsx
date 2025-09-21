@@ -57,6 +57,7 @@ import {
 import type { Lead, ContactAttempt } from "@/lib/types"
 import { enrichLeadWithAI, simulateWebScraping } from "@/lib/ai-lead-enrichment"
 import { sendAutoContact } from "@/lib/auto-contact"
+import { API_BASE_URL } from "@/lib/config"
 
 const towns = ["Springfield", "Riverside", "Oakville", "Millfield", "Brookside", "Watertown", "Attleboro", "Taunton", "Unknown"]
 
@@ -86,7 +87,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchLeads = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/leads')
+        const response = await fetch(`${API_BASE_URL}/api/leads`)
         if (response.ok) {
           const data = await response.json()
           setLeads(data)
@@ -167,7 +168,34 @@ export default function Dashboard() {
         },
       }
 
-      setLeads([newLeadData, ...leads])
+      // Send to backend API to check for duplicates
+      const response = await fetch(`${API_BASE_URL}/api/leads/add`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newLeadData),
+      })
+
+      const result = await response.json()
+
+      if (response.status === 409) {
+        // Duplicate detected
+        alert(`⚠️ Duplicate lead detected! This lead already exists in the system:\n\n${result.duplicateLead.first_name} ${result.duplicateLead.last_name} (ID: ${result.duplicateLead.id})`)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to add lead')
+      }
+
+      // Success - refresh leads from server
+      const fetchResponse = await fetch(`${API_BASE_URL}/api/leads`)
+      if (fetchResponse.ok) {
+        const updatedLeads = await fetchResponse.json()
+        setLeads(updatedLeads)
+      }
+
       setNewLead({
         firstName: "",
         lastName: "",
@@ -180,6 +208,7 @@ export default function Dashboard() {
       setIsAddDialogOpen(false)
     } catch (error) {
       console.error("Error adding lead:", error)
+      alert(`Error adding lead: ${error.message}`)
     } finally {
       setIsEnriching(false)
     }
@@ -221,9 +250,9 @@ export default function Dashboard() {
 
   const renderContent = () => {
     switch (currentView) {
-      case "auto-contact":
+      case "text-messages":
         return (
-          <AutoContactView
+          <TextMessagesView
             leads={leads}
             onContactSent={(attempt) => setContactAttempts([attempt, ...contactAttempts])}
           />
@@ -403,8 +432,8 @@ export default function Dashboard() {
                             : "bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800"
                         }`}
                       >
-                        <Bot className="h-4 w-4 mr-2" />
-                        Auto Contact {isAutoContactEnabled ? "ON" : "OFF"}
+                        <Phone className="h-4 w-4 mr-2" />
+                        Auto SMS {isAutoContactEnabled ? "ON" : "OFF"}
                       </Button>
                     </div>
                   </div>
@@ -493,12 +522,12 @@ function AppSidebar({
             <SidebarMenu className="space-y-3">
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={() => onViewChange("auto-contact")}
-                  isActive={currentView === "auto-contact"}
+                  onClick={() => onViewChange("text-messages")}
+                  isActive={currentView === "text-messages"}
                   className="text-white hover:bg-white/10 data-[active=true]:bg-white/20 h-12 px-4 text-base font-medium"
                 >
-                  <Bot className="h-5 w-5" />
-                  <span>Auto Contact</span>
+                  <Phone className="h-5 w-5" />
+                  <span>Text Messages</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
@@ -657,7 +686,7 @@ Best regards,
                   <MapPin className="h-4 w-4 flex-shrink-0" />
                   <span className="text-sm truncate">
                     {lead.source === 'reddit' ? 
-                      `${lead.town} - r/${lead.group_name}` : 
+                      `${lead.town} - ${lead.group_name}` : 
                       `${lead.town} - ${lead.group_name}`
                     }
                   </span>
@@ -876,31 +905,224 @@ Best regards,
   )
 }
 
-function AutoContactView({
+function TextMessagesView({
   leads,
   onContactSent,
 }: {
   leads: Lead[]
   onContactSent: (attempt: ContactAttempt) => void
 }) {
+  const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set())
+  const [message, setMessage] = useState("")
+  const [isSending, setIsSending] = useState(false)
+  const [sendMode, setSendMode] = useState<"manual" | "auto">("manual")
+
+  // Filter leads that have phone numbers
+  const leadsWithPhone = leads.filter(lead => lead.phone && lead.phone.trim() !== "")
+
+  const handleSelectLead = (leadId: number) => {
+    const newSelected = new Set(selectedLeads)
+    if (newSelected.has(leadId)) {
+      newSelected.delete(leadId)
+    } else {
+      newSelected.add(leadId)
+    }
+    setSelectedLeads(newSelected)
+  }
+
+  const handleSelectAll = () => {
+    if (selectedLeads.size === leadsWithPhone.length) {
+      setSelectedLeads(new Set())
+    } else {
+      setSelectedLeads(new Set(leadsWithPhone.map(lead => lead.id)))
+    }
+  }
+
+  const sendBulkMessages = async () => {
+    if (selectedLeads.size === 0) {
+      alert("Please select at least one lead to message")
+      return
+    }
+
+    if (!message.trim()) {
+      alert("Please enter a message to send")
+      return
+    }
+
+    setIsSending(true)
+    try {
+      const selectedLeadsData = leadsWithPhone.filter(lead => selectedLeads.has(lead.id))
+      
+      for (const lead of selectedLeadsData) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/contact/sms`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              to: lead.phone,
+              message: message
+            }),
+          })
+
+          if (response.ok) {
+            // Create contact attempt record
+            const attempt: ContactAttempt = {
+              id: Date.now() + Math.random(),
+              lead_id: lead.id,
+              contact_type: 'sms',
+              message_content: message,
+              sent_at: new Date().toISOString(),
+              status: 'sent'
+            }
+            onContactSent(attempt)
+          }
+        } catch (error) {
+          console.error(`Failed to send SMS to ${lead.first_name}:`, error)
+        }
+      }
+
+      alert(`Successfully sent ${selectedLeadsData.length} text messages!`)
+      setSelectedLeads(new Set())
+      setMessage("")
+    } catch (error) {
+      console.error("Error sending bulk messages:", error)
+      alert("Error sending messages. Please try again.")
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const defaultMessage = `Hi! I saw your post about HVAC needs. I'm a local professional and would love to help. Are you available for a quick call this week?`
+
   return (
     <div className="space-y-6">
       <Card className="backdrop-blur-xl bg-slate-800/30 border-slate-600/30">
         <CardHeader>
           <CardTitle className="text-white flex items-center space-x-2">
-            <Bot className="h-5 w-5 text-cyan-400" />
-            <span>Auto Contact Center</span>
+            <Phone className="h-5 w-5 text-cyan-400" />
+            <span>Text Messages</span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           <p className="text-white/70">
-            AI-powered automated outreach to qualified leads. Select leads and contact methods for bulk messaging.
+            Send SMS messages to leads who have provided phone numbers. Select leads and send personalized messages or enable auto-messaging.
           </p>
-          <div className="text-center py-8">
-            <p className="text-white/60">Auto Contact functionality is available here</p>
-            <p className="text-white/40 text-sm mt-2">
-              Features: Bulk contact, personalized messages, scheduling, follow-ups
-            </p>
+
+          {/* Message Composition */}
+          <div className="space-y-4">
+            <div>
+              <Label className="text-white mb-2 block">Message Template</Label>
+              <Textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder={defaultMessage}
+                className="min-h-[120px] bg-slate-700/50 border-slate-600 text-white placeholder:text-white/40 resize-y"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                onClick={() => setMessage(defaultMessage)}
+                variant="outline"
+                className="border-white/30 text-white hover:bg-white/10"
+                size="sm"
+              >
+                Use Default Template
+              </Button>
+              <div className="flex-1" />
+            </div>
+          </div>
+
+          {/* Lead Selection */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">
+                Select Leads ({leadsWithPhone.length} with phone numbers)
+              </h3>
+              <Button
+                onClick={handleSelectAll}
+                variant="outline"
+                size="sm"
+                className="border-white/30 text-white hover:bg-white/10"
+              >
+                {selectedLeads.size === leadsWithPhone.length ? "Deselect All" : "Select All"}
+              </Button>
+            </div>
+
+            {leadsWithPhone.length === 0 ? (
+              <div className="text-center py-8">
+                <Phone className="h-12 w-12 text-white/40 mx-auto mb-4" />
+                <p className="text-white/60">No leads with phone numbers found</p>
+                <p className="text-white/40 text-sm mt-2">Phone numbers will appear here when leads provide them</p>
+              </div>
+            ) : (
+              <div className="grid gap-3 max-h-96 overflow-y-auto">
+                {leadsWithPhone.map((lead) => (
+                  <Card key={lead.id} className="bg-white/5 border-white/10">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedLeads.has(lead.id)}
+                            onChange={() => handleSelectLead(lead.id)}
+                            className="w-4 h-4 text-cyan-600 bg-slate-700 border-slate-600 rounded focus:ring-cyan-500"
+                          />
+                          <div>
+                            <h4 className="text-white font-medium">
+                              {lead.first_name} {lead.last_name}
+                            </h4>
+                            <p className="text-white/60 text-sm">{lead.phone}</p>
+                            <p className="text-white/50 text-xs">{lead.town} • {lead.source}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant="outline" className="border-green-400/50 text-green-300">
+                            {lead.lead_score}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Send Actions */}
+          {leadsWithPhone.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-white/10">
+              <Button
+                onClick={sendBulkMessages}
+                disabled={selectedLeads.size === 0 || !message.trim() || isSending}
+                className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 flex-1"
+              >
+                <Phone className="h-4 w-4 mr-2" />
+                {isSending ? "Sending..." : `Send to ${selectedLeads.size} Lead${selectedLeads.size !== 1 ? 's' : ''}`}
+              </Button>
+            </div>
+          )}
+
+          {/* Auto SMS Status */}
+          <div className="mt-6 p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-white font-medium">Auto SMS Messaging</h4>
+                <p className="text-white/60 text-sm">
+                  Automatically send SMS to new leads with phone numbers
+                </p>
+              </div>
+              <Badge 
+                variant="outline" 
+                className={`${
+                  false ? "border-green-400/50 text-green-300" : "border-orange-400/50 text-orange-300"
+                }`}
+              >
+                {false ? "ACTIVE" : "INACTIVE"}
+              </Badge>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -972,7 +1194,7 @@ function SettingsView({ isAutoContactEnabled }: { isAutoContactEnabled: boolean 
   useEffect(() => {
     const loadTemplate = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/settings/dm-template')
+        const response = await fetch(`${API_BASE_URL}/api/settings/dm-template`)
         if (response.ok) {
           const data = await response.json()
           setDmTemplate(data.template || '')
@@ -980,21 +1202,7 @@ function SettingsView({ isAutoContactEnabled }: { isAutoContactEnabled: boolean 
       } catch (error) {
         console.error('Error loading DM template:', error)
         // Set default template
-        setDmTemplate(`Hi {{firstName}}! 👋
-
-I saw your post about {{keywords}} and wanted to reach out. I'm a local HVAC professional serving {{town}} and would love to help you with your heating and cooling needs.
-
-We specialize in:
-🔧 {{keywords}} installation & repair
-❄️ Energy-efficient solutions
-⚡ Same-day emergency service
-💰 Free consultations & estimates
-
-I'd be happy to provide you with a free consultation to discuss your specific situation. When would be a good time for a quick call?
-
-Best regards,
-[Your HVAC Business]
-📞 Licensed & Insured`)
+        setDmTemplate(`Hi {{firstName}}! I saw your post about {{keywords}} and wanted to reach out. I'm a local HVAC professional serving {{town}} and would love to help you with your heating and cooling needs. Are you available for a quick call this week? Best regards, [Your HVAC Business]`)
       } finally {
         setIsLoading(false)
       }
@@ -1013,7 +1221,7 @@ Best regards,
     setSaveMessage('')
 
     try {
-      const response = await fetch('http://localhost:5000/api/settings/dm-template', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/dm-template`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1047,9 +1255,9 @@ Best regards,
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <h3 className="text-lg font-semibold text-white mb-4">Auto-DM Template</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">SMS Template</h3>
             <p className="text-white/70 mb-4">
-              Customize the message template used for automatic Facebook DMs to new leads.
+              Customize the message template used for SMS messages to leads with phone numbers.
             </p>
             
             <div className="space-y-4">
@@ -1067,10 +1275,10 @@ Best regards,
                   </div>
                 ) : (
                   <Textarea
-                    id="dm-template"
+                    id="sms-template"
                     value={dmTemplate}
                     onChange={(e) => setDmTemplate(e.target.value)}
-                    placeholder="Enter your DM template..."
+                    placeholder="Enter your SMS template..."
                     className="min-h-[200px] bg-slate-700/50 border-slate-600 text-white placeholder:text-white/40 resize-y"
                   />
                 )}
@@ -1093,21 +1301,21 @@ Best regards,
               </div>
               
               <div className="text-xs text-white/50 space-y-1">
-                <p><strong>Tip:</strong> Use emojis and personalization to make your messages more engaging.</p>
-                <p><strong>Note:</strong> Messages are sent automatically when auto-contact is enabled and new leads are found.</p>
+                <p><strong>Tip:</strong> Keep SMS messages concise and personal for better response rates.</p>
+                <p><strong>Note:</strong> SMS messages are sent automatically when auto-SMS is enabled and new leads with phone numbers are found.</p>
               </div>
             </div>
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold text-white mb-4">Auto-Contact Status</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Auto-SMS Status</h3>
             <div className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg">
               <div>
-                <p className="text-white font-medium">Automatic DM Sending</p>
+                <p className="text-white font-medium">Automatic SMS Sending</p>
                 <p className="text-white/60 text-sm">
                   {isAutoContactEnabled 
-                    ? "✅ Auto-contact is ON - New leads will be messaged automatically" 
-                    : "⚠️ Auto-contact is OFF - Toggle the switch in the header to enable"
+                    ? "✅ Auto-SMS is ON - New leads with phone numbers will be messaged automatically" 
+                    : "⚠️ Auto-SMS is OFF - Toggle the switch in the header to enable"
                   }
                 </p>
               </div>

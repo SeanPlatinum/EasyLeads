@@ -12,13 +12,14 @@ import { Bot, Mail, MessageSquare, Phone, Send, Users, CheckCircle, AlertCircle,
 import type { Lead, ContactTemplate, ContactAttempt } from "@/lib/types"
 import { mockLeads, mockTemplates } from "@/lib/types"
 import { generatePersonalizedMessage, sendAutoContact } from "@/lib/auto-contact"
+import { API_BASE_URL } from "@/lib/config"
 
 export default function AutoContactPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   useEffect(() => {
     const fetchLeads = async () => {
       const token = localStorage.getItem("token")
-      const res = await fetch("http://localhost:5000/api/leads", {
+      const res = await fetch(`${API_BASE_URL}/api/leads`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
