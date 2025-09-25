@@ -3,6 +3,7 @@
 import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 
 import { useState, useEffect } from "react"
+import { isAuthenticated, logout, getAuthHeaders } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -83,14 +84,30 @@ export default function Dashboard() {
 
   const [isAutoContactEnabled, setIsAutoContactEnabled] = useState(false)
 
+  // Authentication check
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      window.location.href = '/';
+      return;
+    }
+  }, [])
+
   // Fetch leads from API on component mount
   useEffect(() => {
     const fetchLeads = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/leads`)
+        const response = await fetch(`${API_BASE_URL}/api/leads`, {
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json',
+          },
+        })
         if (response.ok) {
           const data = await response.json()
           setLeads(data)
+        } else if (response.status === 401) {
+          // Token expired or invalid, redirect to login
+          logout()
         } else {
           console.error('Failed to fetch leads:', response.statusText)
         }
@@ -150,8 +167,8 @@ export default function Dashboard() {
         first_name: newLead.firstName,
         last_name: newLead.lastName,
         facebook_name: newLead.facebookName,
-        email: enrichmentData?.email || scrapedData.contactHints.emailPattern,
-        phone: enrichmentData?.phone || scrapedData.contactHints.phonePattern,
+        email: enrichmentData?.email || scrapedData.contactHints.emailPattern || undefined,
+        phone: enrichmentData?.phone || scrapedData.contactHints.phonePattern || undefined,
         town: newLead.town,
         group_name: newLead.groupName,
         keywords: newLead.keywords,
@@ -172,6 +189,7 @@ export default function Dashboard() {
       const response = await fetch(`${API_BASE_URL}/api/leads/add`, {
         method: 'POST',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(newLeadData),
@@ -190,7 +208,9 @@ export default function Dashboard() {
       }
 
       // Success - refresh leads from server
-      const fetchResponse = await fetch(`${API_BASE_URL}/api/leads`)
+      const fetchResponse = await fetch(`${API_BASE_URL}/api/leads`, {
+        headers: getAuthHeaders(),
+      })
       if (fetchResponse.ok) {
         const updatedLeads = await fetchResponse.json()
         setLeads(updatedLeads)
@@ -208,7 +228,7 @@ export default function Dashboard() {
       setIsAddDialogOpen(false)
     } catch (error) {
       console.error("Error adding lead:", error)
-      alert(`Error adding lead: ${error.message}`)
+      alert(`Error adding lead: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsEnriching(false)
     }
@@ -237,7 +257,7 @@ export default function Dashboard() {
       return result
     } catch (error) {
       console.error("Manual contact failed:", error)
-      return { success: false, error }
+      return { success: false, error: error instanceof Error ? error : new Error('Unknown error') }
     }
   }
 
@@ -310,7 +330,7 @@ export default function Dashboard() {
                 {leads.length} Leads
               </Badge>
               <Button
-                onClick={() => (window.location.href = "/")}
+                onClick={logout}
                 variant="outline"
                 size="sm"
                 className="border-red-400/50 text-red-300 hover:bg-red-500/20 hover:border-red-400 text-xs sm:text-sm"
@@ -958,6 +978,7 @@ function TextMessagesView({
           const response = await fetch(`${API_BASE_URL}/api/contact/sms`, {
             method: 'POST',
             headers: {
+              ...getAuthHeaders(),
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -1194,7 +1215,9 @@ function SettingsView({ isAutoContactEnabled }: { isAutoContactEnabled: boolean 
   useEffect(() => {
     const loadTemplate = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/settings/dm-template`)
+        const response = await fetch(`${API_BASE_URL}/api/settings/dm-template`, {
+          headers: getAuthHeaders(),
+        })
         if (response.ok) {
           const data = await response.json()
           setDmTemplate(data.template || '')
@@ -1224,6 +1247,7 @@ function SettingsView({ isAutoContactEnabled }: { isAutoContactEnabled: boolean 
       const response = await fetch(`${API_BASE_URL}/api/settings/dm-template`, {
         method: 'PUT',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ template: dmTemplate }),
