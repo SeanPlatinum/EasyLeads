@@ -262,6 +262,38 @@ export default function Dashboard() {
     }
   }
 
+  const handleDeleteLead = async (leadId: number) => {
+    if (!confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/leads/${leadId}`, {
+        method: 'DELETE',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        // Remove the lead from the local state
+        setLeads((prevLeads) => prevLeads.filter(lead => lead.id !== leadId))
+        console.log(`✅ Lead deleted successfully: ID ${leadId}`)
+      } else if (response.status === 401) {
+        // Token expired or invalid, redirect to login
+        logout()
+      } else {
+        const errorData = await response.json()
+        console.error('Failed to delete lead:', errorData.message)
+        alert(`Failed to delete lead: ${errorData.message}`)
+      }
+    } catch (error) {
+      console.error('Error deleting lead:', error)
+      alert('Error deleting lead. Please try again.')
+    }
+  }
+
   const stats = {
     totalLeads: leads.length,
     newLeads: leads.filter((l) => l.status === "new").length,
@@ -288,7 +320,7 @@ export default function Dashboard() {
           return (
             <div className="grid gap-4">
               {leadsByTown[town]?.map((lead) => (
-                <EnhancedLeadCard key={lead.id} lead={lead} onManualContact={handleManualContact} />
+                <EnhancedLeadCard key={lead.id} lead={lead} onManualContact={handleManualContact} onDeleteLead={handleDeleteLead} />
               ))}
             </div>
           )
@@ -296,7 +328,7 @@ export default function Dashboard() {
         return (
           <div className="grid gap-4">
             {filteredLeads.map((lead) => (
-              <EnhancedLeadCard key={lead.id} lead={lead} onManualContact={handleManualContact} />
+              <EnhancedLeadCard key={lead.id} lead={lead} onManualContact={handleManualContact} onDeleteLead={handleDeleteLead} />
             ))}
           </div>
         )
@@ -584,9 +616,11 @@ function AppSidebar({
 function EnhancedLeadCard({
   lead,
   onManualContact,
+  onDeleteLead,
 }: {
   lead: Lead
   onManualContact: (lead: Lead, contactType: "email" | "sms" | "facebook", message: string) => Promise<any>
+  onDeleteLead: (leadId: number) => void
 }) {
   const [isContactDialogOpen, setIsContactDialogOpen] = useState(false)
   const [contactType, setContactType] = useState<"email" | "sms" | "facebook">("email")
@@ -918,6 +952,12 @@ Best regards,
                 <DropdownMenuItem className="text-white hover:bg-white/10 text-sm">Edit Lead</DropdownMenuItem>
                 <DropdownMenuItem className="text-white hover:bg-white/10 text-sm">View History</DropdownMenuItem>
                 <DropdownMenuItem className="text-white hover:bg-white/10 text-sm">Mark as Qualified</DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-red-400 hover:bg-red-500/20 text-sm"
+                  onClick={() => onDeleteLead(lead.id)}
+                >
+                  Delete Lead
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
