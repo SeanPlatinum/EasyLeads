@@ -4,6 +4,7 @@ import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuConten
 
 import { useState, useEffect } from "react"
 import { isAuthenticated, logout, getAuthHeaders } from "@/lib/auth"
+import { NewLeadsNotification } from "@/components/NewLeadsNotification"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -304,6 +305,7 @@ export default function Dashboard() {
 
   return (
     <SidebarProvider>
+      <NewLeadsNotification />
       <AppSidebar currentView={currentView} onViewChange={setCurrentView} leadsByTown={leadsByTown} />
       <SidebarInset>
         {/* Header */}
