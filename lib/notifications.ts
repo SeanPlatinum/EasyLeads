@@ -71,3 +71,6 @@ export function setNotificationPreferences(prefs: { enabled: boolean; sound: boo
   if (typeof window === 'undefined') return;
   localStorage.setItem('notificationPreferences', JSON.stringify(prefs));
 }
+
+
+
