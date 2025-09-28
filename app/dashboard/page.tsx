@@ -60,6 +60,7 @@ import type { Lead, ContactAttempt } from "@/lib/types"
 import { enrichLeadWithAI, simulateWebScraping } from "@/lib/ai-lead-enrichment"
 import { sendAutoContact } from "@/lib/auto-contact"
 import { API_BASE_URL } from "@/lib/config"
+import SocialAuthManager from "../../src/components/SocialAuthManager"
 
 const towns = ["Springfield", "Riverside", "Oakville", "Millfield", "Brookside", "Watertown", "Attleboro", "Taunton", "Unknown"]
 
@@ -1401,6 +1402,12 @@ function SettingsView({ isAutoContactEnabled }: { isAutoContactEnabled: boolean 
             <div className="text-center py-8">
               <p className="text-white/60">AI configuration options will be implemented here</p>
             </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold text-white mb-4">Social Media Authentication</h3>
+            <p className="text-white/70 mb-4">Configure Facebook and Reddit tokens for automated scraping.</p>
+            <SocialAuthManager />
           </div>
 
           <div>
