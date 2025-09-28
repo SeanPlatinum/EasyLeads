@@ -54,6 +54,24 @@ export function getAuthHeaders(): Record<string, string> {
 }
 
 /**
+ * Get current user from JWT token
+ */
+export function getCurrentUser(): { id: number; email: string } | null {
+  const token = getToken();
+  if (!token) return null;
+  
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return {
+      id: payload.userId,
+      email: payload.email || 'user@example.com' // Fallback if email not in token
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Logout user and redirect to login
  */
 export function logout(): void {

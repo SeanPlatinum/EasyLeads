@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { getCurrentUser, getAuthHeaders } from '../../lib/auth';
 
 const SocialAuthManager = () => {
-  const { user, token } = useAuth();
+  const [user, setUser] = useState(null);
   const [tokens, setTokens] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+
+  // Get current user on component mount
+  useEffect(() => {
+    const currentUser = getCurrentUser();
+    setUser(currentUser);
+  }, []);
 
   // Fetch current tokens
   const fetchTokens = async () => {
@@ -15,7 +21,7 @@ const SocialAuthManager = () => {
     try {
       const response = await fetch(`/api/social/tokens/${user.id}`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         }
       });
@@ -41,7 +47,7 @@ const SocialAuthManager = () => {
     try {
       const response = await fetch(`/api/social/validate/${user.id}`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         }
       });
@@ -69,7 +75,7 @@ const SocialAuthManager = () => {
       const response = await fetch('/api/social/tokens', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -108,7 +114,7 @@ const SocialAuthManager = () => {
       const response = await fetch('/api/social/tokens', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
