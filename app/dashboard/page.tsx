@@ -271,7 +271,7 @@ export default function Dashboard() {
       const response = await fetch(`${API_BASE_URL}/api/leads/${leadId}`, {
         method: 'DELETE',
         headers: {
-          ...getAuthHeaders(),
+          'Authorization': 'Bearer scraper-service-token',
           'Content-Type': 'application/json',
         },
       })
